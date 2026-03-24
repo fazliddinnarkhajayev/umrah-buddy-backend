@@ -1,0 +1,47 @@
+{
+  "name": "umrah-buddy-backend",
+  "version": "1.0.0",
+  "description": "Umrah Buddy backend (NestJS + Knex + Postgres)",
+  "private": true,
+  "scripts": {
+    "build": "nest build",
+    "start": "node dist/main",
+    "start:dev": "nest start --watch",
+    "start:prod": "node dist/main",
+    "db:migrate": "knex migrate:latest --knexfile knexfile.js --env development",
+    "db:migrate:make": "knex migrate:make --knexfile knexfile.js --env development -x ts",
+    "db:migrate:rollback": "knex migrate:rollback --knexfile knexfile.js",
+    "db:rollback": "knex migrate:rollback --knexfile knexfile.js"
+  },
+  "keywords": [
+    "nestjs",
+    "knex",
+    "postgres"
+  ],
+  "license": "UNLICENSED",
+  "dependencies": {
+    "@nestjs/common": "^11.1.17",
+    "@nestjs/config": "^4.0.3",
+    "@nestjs/core": "^11.1.17",
+    "@nestjs/jwt": "^11.0.1",
+    "@nestjs/passport": "^11.0.5",
+    "@nestjs/platform-express": "^11.1.17",
+    "bcrypt": "^6.0.0",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.15.1",
+    "knex": "^3.1.0",
+    "passport": "^0.7.0",
+    "passport-jwt": "^4.0.1",
+    "pg": "^8.20.0",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.2"
+  },
+  "devDependencies": {
+    "@nestjs/cli": "^11.0.10",
+    "@types/bcrypt": "^6.0.0",
+    "@types/node": "^25.5.0",
+    "@types/passport-jwt": "^4.0.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  }
+}
