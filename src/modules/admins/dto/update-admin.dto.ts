@@ -1,9 +1,18 @@
-import { IsIn, IsOptional, IsPhoneNumber, IsString, MinLength } from 'class-validator';
+import {
+  IsIn,
+  IsOptional,
+  IsPhoneNumber,
+  IsString,
+  MinLength,
+} from "class-validator";
 
 export class UpdateAdminDto {
   @IsOptional()
   @IsPhoneNumber()
   phone?: string;
+
+  @IsString()
+  username!: string;
 
   @IsOptional()
   @IsString()
@@ -24,17 +33,13 @@ export class UpdateAdminDto {
 
   @IsOptional()
   @IsString()
-  region?: string | null;
+  region_id?: string;
 
   @IsOptional()
   @IsString()
-  district?: string | null;
+  district_id?: string;
 
   @IsOptional()
-  @IsString()
-  language?: string;
-
-  @IsOptional()
-  @IsIn(['STAFF', 'SUPER_ADMIN'])
-  role?: 'STAFF' | 'SUPER_ADMIN';
+  @IsIn(["STAFF", "SUPER_ADMIN"])
+  role?: "STAFF" | "SUPER_ADMIN";
 }

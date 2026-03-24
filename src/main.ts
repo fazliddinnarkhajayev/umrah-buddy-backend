@@ -22,6 +22,7 @@ async function bootstrap() {
   app.useGlobalFilters(new HttpExceptionFilter());
 
   await app.listen(port);
+  console.log(`✅ Server running on http://localhost:${port}/${apiPrefix}`);
 }
 
 bootstrap().catch((err: unknown) => {

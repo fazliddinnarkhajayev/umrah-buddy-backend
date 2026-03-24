@@ -1,25 +1,41 @@
+import { Injectable } from '@nestjs/common';
+import { Knex } from 'knex';
 import { BaseDao } from '../dao/base.dao';
 
-export abstract class BaseService<T extends { id: string }> {
-  protected constructor(protected readonly dao: BaseDao<T>) { }
+@Injectable()
+export class BaseService<T extends { id: string }, D extends BaseDao<T>> {
+  constructor(protected readonly dao: D) {}
 
-  findById(id: string): Promise<T | undefined> {
-    return this.dao.findById(id);
+  async transaction<R>(callback: (trx: Knex.Transaction) => Promise<R>): Promise<R> {
+    return this.dao.transaction(callback);
   }
 
-  findAll(): Promise<T[]> {
-    return this.dao.findMany();
+  async create(payload: Partial<T>, trx?: Knex.Transaction): Promise<T> {
+    return this.dao.insert(payload, trx);
   }
 
-  create(payload: Partial<T>): Promise<T> {
-    return this.dao.insert(payload);
+  async findAll(where?: Partial<T>, trx?: Knex.Transaction): Promise<T[]> {
+    return this.dao.findMany(where, trx);
   }
 
-  update(id: string, payload: Partial<T>): Promise<T | undefined> {
-    return this.dao.updateById(id, payload);
+  async findOne(id: string, trx?: Knex.Transaction): Promise<T | undefined> {
+    return this.dao.findById(id, trx);
   }
 
-  remove(id: string): Promise<boolean> {
-    return this.dao.deleteById(id);
+  async findOneBy(where: Partial<T>, trx?: Knex.Transaction): Promise<T | undefined> {
+    return this.dao.findOne(where, trx);
+  }
+
+  async update(id: string, payload: Partial<T>, trx?: Knex.Transaction): Promise<T | undefined> {
+    return this.dao.updateById(id, payload, trx);
+  }
+
+  async delete(id: string, trx?: Knex.Transaction): Promise<boolean> {
+    return this.dao.deleteById(id, trx);
+  }
+
+  // Alias for delete to match common NestJS conventions
+  async remove(id: string, trx?: Knex.Transaction): Promise<boolean> {
+    return this.delete(id, trx);
   }
 }

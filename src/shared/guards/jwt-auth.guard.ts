@@ -26,11 +26,10 @@ export class JwtAuthGuard implements CanActivate {
 
   canActivate(context: ExecutionContext): boolean {
     // Check if route is marked as public
-    const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
-      context.getHandler(),
-      context.getClass(),
-    ]);
-
+    const isPublicOnMethod = this.reflector.get<boolean>(IS_PUBLIC_KEY, context.getHandler());
+    const isPublicOnClass = this.reflector.get<boolean>(IS_PUBLIC_KEY, context.getClass());
+    const isPublic = isPublicOnMethod || isPublicOnClass;
+    
     if (isPublic) {
       return true;
     }
@@ -47,17 +46,18 @@ export class JwtAuthGuard implements CanActivate {
     const token = authHeader.startsWith('Bearer ')
       ? authHeader.slice(7)
       : authHeader;
-
+console.log('token', token)
     if (!token) {
       throw new UnauthorizedException('Missing token');
     }
 
     try {
-      const secret = this.configService.get<string>('ACCESS_TOKEN_SECRET') ?? 'change_me_access';
+      const secret = this.configService.get<string>('JWT_SECRET') ?? 'change_me_access';
       const payload = this.jwtService.verify<JwtPayload>(token, { secret });
       request.user = payload;
       return true;
     } catch (error) {
+      console.log('Error', error)
       throw new UnauthorizedException('Invalid or expired token');
     }
   }

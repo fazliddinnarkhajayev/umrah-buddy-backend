@@ -1,37 +1,55 @@
-import { Inject } from '@nestjs/common';
+import { Injectable, Inject } from '@nestjs/common';
 import { Knex } from 'knex';
-import { KNEX_CONNECTION } from '../../core/database/database.constants';
+import { KNEX_CONNECTION } from 'src/core/database/database.constants';
 
-export abstract class BaseDao<T extends { id: string }> {
-  protected constructor(
+@Injectable()
+export class BaseDao<T extends { id: string }> {
+  protected readonly db: Knex;
+
+  constructor(
     protected readonly tableName: string,
-    @Inject(KNEX_CONNECTION) protected readonly db: Knex,
-  ) { }
+    @Inject(KNEX_CONNECTION) db: Knex,
+  ) {
+    this.db = db;
+  }
 
-  async findById(id: string): Promise<T | undefined> {
-    const record = await this.db(this.tableName).where({ id }).first();
+  protected qb(trx?: Knex.Transaction): Knex.QueryBuilder {
+    return trx ? trx(this.tableName) : this.db(this.tableName);
+  }
+
+  async transaction<R>(callback: (trx: Knex.Transaction) => Promise<R>): Promise<R> {
+    return this.db.transaction(callback);
+  }
+
+  async findById(id: string, trx?: Knex.Transaction): Promise<T | undefined> {
+    const record = await this.qb(trx).where({ id }).first();
     return record as T | undefined;
   }
 
-  async findOne(where: Partial<T>): Promise<T | undefined> {
-    const record = await this.db(this.tableName).where(where as Record<string, unknown>).first();
+  async findOne(where: Partial<T>, trx?: Knex.Transaction): Promise<T | undefined> {
+    const record = await this.qb(trx).where(where as Record<string, unknown>).first();
     return record as T | undefined;
   }
 
-  async findMany(where: Partial<T> = {}): Promise<T[]> {
-    const records = await this.db(this.tableName).where(where as Record<string, unknown>);
+  async findMany(where: Partial<T> = {}, trx?: Knex.Transaction): Promise<T[]> {
+    const records = await this.qb(trx).where(where as Record<string, unknown>);
     return records as T[];
   }
 
-  async insert(payload: Partial<T>): Promise<T> {
-    const [record] = await this.db(this.tableName)
+  async exists(where: Partial<T>, trx?: Knex.Transaction): Promise<boolean> {
+    const record = await this.qb(trx).where(where as Record<string, unknown>).first();
+    return !!record;
+  }
+
+  async insert(payload: Partial<T>, trx?: Knex.Transaction): Promise<T> {
+    const [record] = await this.qb(trx)
       .insert(payload as Record<string, unknown>)
       .returning('*');
     return record as T;
   }
 
-  async updateById(id: string, payload: Partial<T>): Promise<T | undefined> {
-    const [record] = await this.db(this.tableName)
+  async updateById(id: string, payload: Partial<T>, trx?: Knex.Transaction): Promise<T | undefined> {
+    const [record] = await this.qb(trx)
       .where({ id })
       .update(payload as Record<string, unknown>)
       .returning('*');
@@ -39,8 +57,8 @@ export abstract class BaseDao<T extends { id: string }> {
     return record as T | undefined;
   }
 
-  async deleteById(id: string): Promise<boolean> {
-    const affected = await this.db(this.tableName).where({ id }).delete();
+  async deleteById(id: string, trx?: Knex.Transaction): Promise<boolean> {
+    const affected = await this.qb(trx).where({ id }).delete();
     return affected > 0;
   }
 }

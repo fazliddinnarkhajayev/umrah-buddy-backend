@@ -1,0 +1,505 @@
+import {
+  BadRequestException,
+  ConflictException,
+  ForbiddenException,
+  Inject,
+  Injectable,
+  UnauthorizedException,
+} from "@nestjs/common";
+import { JwtService } from "@nestjs/jwt";
+import { ConfigService } from "@nestjs/config";
+import { Knex } from "knex";
+import * as bcrypt from "bcrypt";
+import { randomInt } from "crypto";
+import { SendOtpDto } from "./dto/send-otp.dto";
+import { VerifyOtpDto } from "./dto/verify-otp.dto";
+import { LoginDto } from "./dto/login.dto";
+import { RegisterDto } from "./dto/register.dto";
+import { RefreshTokenDto } from "./dto/refresh-token.dto";
+import { LogoutDto } from "./dto/logout.dto";
+import { UsersAuthDao, UserRecord } from "../../shared/dao/users-auth.dao";
+import { AdminsDao } from "../../shared/dao/admins.dao";
+import { OtpSessionsDao } from "../../shared/dao/otp-sessions.dao";
+import { RefreshTokensDao } from "../../shared/dao/refresh-tokens.dao";
+import { PiligrimsDao } from "src/shared/dao/piligrims.dao";
+import { KNEX_CONNECTION } from "src/core/database/database.constants";
+import { UsersService } from "../users/users.service";
+import { UserTypesEnum } from "src/shared/enums/user-types.enum";
+
+export interface JwtPayload {
+  user_id: string;
+  type: "ADMIN" | "PILGRIM";
+  role?: "STAFF" | "SUPER_ADMIN";
+}
+
+export interface TokenPair {
+  access_token: string;
+  refresh_token: string;
+}
+
+@Injectable()
+export class AuthService {
+  constructor(
+    @Inject(KNEX_CONNECTION) private readonly db: Knex,
+    private readonly usersAuthDao: UsersAuthDao,
+    private readonly adminsDao: AdminsDao,
+    private readonly usersService: UsersService,
+    private readonly pilgrimsDao: PiligrimsDao,
+    private readonly otpSessionsDao: OtpSessionsDao,
+    private readonly refreshTokensDao: RefreshTokensDao,
+    private readonly jwtService: JwtService,
+    private readonly configService: ConfigService,
+  ) {}
+
+  private normalizePhone(phone: string): string {
+    return phone.replace(/\D/g, "").slice(-10);
+  }
+
+  // ===================== Admin Login =====================
+
+  async adminLogin(
+    dto: LoginDto,
+  ): Promise<{ access_token: string; refresh_token: string; user: any }> {
+    return this.db.transaction(async (trx) => {
+      const user = await this.usersService.findOneBy(
+        { username: dto.username, type: UserTypesEnum.ADMIN },
+        trx,
+      );
+      if (!user) {
+        throw new UnauthorizedException("Invalid credentials");
+      }
+
+      // Find admin by username
+      const admin: any = await this.adminsDao.findOne(
+        { user_id: user.id, is_deleted: false },
+        trx,
+      );
+      if (!admin) {
+        throw new UnauthorizedException("Invalid credentials");
+      }
+
+      // Check if user is blocked
+      if (admin.is_blocked) {
+        throw new ForbiddenException("User account is blocked");
+      }
+
+      // Verify password
+      if (
+        !user.password_hash ||
+        !(await bcrypt.compare(dto.password, user.password_hash))
+      ) {
+        throw new UnauthorizedException("Invalid credentials");
+      }
+
+      // Update last login
+      await this.usersAuthDao.updateLoginAt(user.id, trx);
+
+      // Generate tokens
+      const tokens = await this.generateTokens(
+        user.id,
+        UserTypesEnum.ADMIN,
+        admin.role,
+        trx,
+      );
+
+      return {
+        ...tokens,
+        user: admin,
+      };
+    });
+  }
+
+  // ===================== Send OTP =====================
+
+  async sendOtp(
+    dto: SendOtpDto,
+  ): Promise<{ success: boolean; expires_in_minutes: number }> {
+    const phone = this.normalizePhone(dto.phone);
+
+    // Generate OTP code (6 digits)
+    const code = String(randomInt(100000, 999999));
+
+    // Get OTP expiry from config
+    const expiryMinutes = Number(
+      this.configService.get<string>("OTP_EXPIRY_MINUTES") ?? "10",
+    );
+    const expiresAt = new Date(Date.now() + expiryMinutes * 60 * 1000);
+
+    // Save OTP session
+    await this.otpSessionsDao.createOtpSession(
+      phone,
+      code,
+      dto.method,
+      expiresAt,
+    );
+
+    // TODO: Send OTP via SMS or Telegram (mock for now)
+    console.log(`OTP sent to ${phone}: ${code} via ${dto.method}`);
+
+    return { success: true, expires_in_minutes: expiryMinutes };
+  }
+
+  // ===================== Verify OTP & Auto-Register Pilgrim =====================
+
+  async verifyOtp(dto: VerifyOtpDto): Promise<{
+    access_token: string;
+    refresh_token: string;
+    is_new_user: boolean;
+    user: any;
+  }> {
+    const phone = this.normalizePhone(dto.phone);
+
+    return this.db.transaction(async (trx) => {
+      // Find latest OTP session
+      const otpSession = await this.otpSessionsDao.findLatestOtpSession(
+        phone,
+        trx,
+      );
+      if (!otpSession) {
+        throw new BadRequestException("OTP not found or expired");
+      }
+
+      // Verify code matches
+      if (otpSession.code !== dto.code) {
+        await this.otpSessionsDao.incrementOtpAttempts(otpSession.id, trx);
+        throw new BadRequestException("Invalid OTP code");
+      }
+
+      // Check if OTP is already used
+      if (otpSession.is_used) {
+        throw new BadRequestException("OTP has already been used");
+      }
+
+      // Check if OTP is expired
+      if (new Date() > otpSession.expires_at) {
+        throw new BadRequestException("OTP has expired");
+      }
+
+      // Mark OTP as used
+      await this.otpSessionsDao.verifyOtpSession(otpSession.id, trx);
+
+      // Find or create user (PILGRIM)
+      let user = await this.usersAuthDao.findUserByPhone(phone, trx);
+      let isNewUser = false;
+
+      if (!user) {
+        isNewUser = true;
+        user = await this.usersAuthDao.createUser(
+          "PILGRIM",
+          phone,
+          null,
+          null,
+          trx,
+        );
+
+        // Create pilgrim profile with default country (can be updated later)
+        // Using a placeholder country ID - in real scenario, user should provide this
+        const defaultCountryId =
+          this.configService.get<string>("DEFAULT_COUNTRY_ID") ||
+          "00000000-0000-0000-0000-000000000000";
+        // await this.pilgrimsDao.createPilgrim(user.id, defaultCountryId, null, trx);
+      }
+
+      // Check if user is blocked
+      if (user.is_blocked) {
+        throw new ForbiddenException("User account is blocked");
+      }
+
+      // Check if user is deleted
+      if (user.deleted_at) {
+        throw new ForbiddenException("User account has been deleted");
+      }
+
+      // Update last login
+      await this.usersAuthDao.updateLoginAt(user.id, trx);
+
+      // Get pilgrim data
+      // const pilgrim = await this.pilgrimsDao.findPilgrimByUserId(user.id, trx);
+      // if (!pilgrim) {
+      //   throw new BadRequestException('Failed to retrieve pilgrim profile');
+      // }
+
+      // Generate tokens
+      const tokens = await this.generateTokens(
+        user.id,
+        "PILGRIM",
+        undefined,
+        trx,
+      );
+
+      return {
+        ...tokens,
+        is_new_user: isNewUser,
+        user: null,
+      };
+    });
+  }
+
+  // ===================== Register Pilgrim (Manual or Google) =====================
+
+  async registerPilgrim(
+    dto: RegisterDto,
+  ): Promise<{ access_token: string; refresh_token: string; user: any }> {
+    if (dto.type === "MANUAL") {
+      return this.registerPilgrimManual(dto);
+    } else if (dto.type === "GOOGLE") {
+      return this.registerPilgrimGoogle(dto);
+    }
+
+    throw new BadRequestException("Invalid registration type");
+  }
+
+  private async registerPilgrimManual(
+    dto: RegisterDto,
+  ): Promise<{ access_token: string; refresh_token: string; user: any }> {
+    if (!dto.full_name || !dto.phone || !dto.country_id) {
+      throw new BadRequestException(
+        "Missing required fields: full_name, phone, country_id",
+      );
+    }
+
+    const phone = this.normalizePhone(dto.phone);
+
+    return this.db.transaction(async (trx) => {
+      // Check if phone already exists
+      const existingUser = await this.usersAuthDao.findUserByPhone(phone, trx);
+      if (existingUser) {
+        throw new ConflictException("Phone number is already registered");
+      }
+
+      // Create user
+      const user = await this.usersAuthDao.createUser(
+        "PILGRIM",
+        phone,
+        null,
+        null,
+        trx,
+      );
+
+      // Create pilgrim profile
+      // await this.pilgrimsDao.createPilgrim(user.id, dto.country_id, dto.full_name, trx);
+
+      // Update last login
+      await this.usersAuthDao.updateLoginAt(user.id, trx);
+
+      // Get pilgrim data
+      // const pilgrim = await this.pilgrimsDao.findPilgrimByUserId(user.id, trx);
+      // if (!pilgrim) {
+      //   throw new BadRequestException('Failed to retrieve pilgrim profile');
+      // }
+
+      // Generate tokens
+      const tokens = await this.generateTokens(
+        user.id,
+        "PILGRIM",
+        undefined,
+        trx,
+      );
+
+      return {
+        ...tokens,
+        user: null,
+      };
+    });
+  }
+
+  private async registerPilgrimGoogle(
+    dto: RegisterDto,
+  ): Promise<{ access_token: string; refresh_token: string; user: any }> {
+    if (!dto.google_token) {
+      throw new BadRequestException("Missing google_token");
+    }
+
+    // TODO: Verify Google token with Google API
+    // For now, we'll do a mock verification
+    const googleUserInfo = this.mockVerifyGoogleToken(dto.google_token);
+
+    return this.db.transaction(async (trx) => {
+      // Check if email already exists
+      const existingUser = await this.usersAuthDao.findUserByEmail(
+        googleUserInfo.email,
+        trx,
+      );
+      if (existingUser) {
+        throw new ConflictException("Email is already registered");
+      }
+
+      // Create user with email
+      const user = await this.usersAuthDao.createUser(
+        "PILGRIM",
+        null,
+        googleUserInfo.email,
+        null,
+        trx,
+      );
+
+      // Create pilgrim profile with Google name
+      const defaultCountryId =
+        this.configService.get<string>("DEFAULT_COUNTRY_ID") ||
+        "00000000-0000-0000-0000-000000000000";
+      // await this.pilgrimsDao.createPilgrim(user.id, defaultCountryId, googleUserInfo.name, trx);
+
+      // Update last login
+      await this.usersAuthDao.updateLoginAt(user.id, trx);
+
+      // Get pilgrim data
+      // const pilgrim = await this.pilgrimsDao.findPilgrimByUserId(user.id, trx);
+      // if (!pilgrim) {
+      //   throw new BadRequestException('Failed to retrieve pilgrim profile');
+      // }
+
+      // Generate tokens
+      const tokens = await this.generateTokens(
+        user.id,
+        "PILGRIM",
+        undefined,
+        trx,
+      );
+
+      return {
+        ...tokens,
+        user: null,
+      };
+    });
+  }
+
+  private mockVerifyGoogleToken(token: string): {
+    email: string;
+    name: string;
+  } {
+    // Mock implementation - in production, verify with:
+    // https://www.googleapis.com/oauth2/v1/tokeninfo?access_token={token}
+    // or decode JWT and verify signature
+    return {
+      email: `user-${Date.now()}@gmail.com`,
+      name: "Google User",
+    };
+  }
+
+  // ===================== Refresh Token =====================
+
+  async refreshToken(dto: RefreshTokenDto): Promise<{ access_token: string }> {
+    return this.db.transaction(async (trx) => {
+      // Find refresh token in database
+      const refreshTokenRecord = await this.refreshTokensDao.findRefreshToken(
+        dto.refresh_token,
+        trx,
+      );
+      if (!refreshTokenRecord) {
+        throw new UnauthorizedException("Invalid or expired refresh token");
+      }
+
+      // Check if token is revoked
+      if (refreshTokenRecord.is_revoked) {
+        throw new UnauthorizedException("Refresh token has been revoked");
+      }
+
+      // Verify token signature
+      try {
+        const payload = this.jwtService.verify<any>(dto.refresh_token, {
+          secret:
+            this.configService.get<string>("REFRESH_TOKEN_SECRET") ??
+            "change_me_refresh",
+        });
+
+        // Verify user exists and is not blocked/deleted
+        const user = await this.usersAuthDao.findUserById(payload.user_id, trx);
+        if (!user || user.is_blocked || user.deleted_at) {
+          throw new ForbiddenException("User is blocked or deleted");
+        }
+
+        // Generate new access token only
+        const accessToken = this.jwtService.sign(
+          {
+            user_id: payload.user_id,
+            type: payload.type,
+            ...(payload.role && { role: payload.role }),
+          } as any,
+          {
+            secret:
+              this.configService.get<string>("ACCESS_TOKEN_SECRET") ??
+              "change_me_access",
+            expiresIn:
+              this.configService.get<number>("ACCESS_TOKEN_EXPIRES_IN") ?? 900, // 15m in seconds
+          },
+        );
+
+        return { access_token: accessToken };
+      } catch (error) {
+        throw new UnauthorizedException("Invalid refresh token");
+      }
+    });
+  }
+
+  // ===================== Logout =====================
+
+  async logout(dto: LogoutDto): Promise<{ success: boolean }> {
+    return this.db.transaction(async (trx) => {
+      // Find refresh token in database
+      const refreshTokenRecord = await this.refreshTokensDao.findRefreshToken(
+        dto.refresh_token,
+        trx,
+      );
+      if (!refreshTokenRecord) {
+        throw new UnauthorizedException("Invalid refresh token");
+      }
+
+      // Revoke refresh token
+      await this.refreshTokensDao.revokeRefreshToken(
+        refreshTokenRecord.id,
+        trx,
+      );
+
+      return { success: true };
+    });
+  }
+
+  // ===================== Token Generation =====================
+
+  private async generateTokens(
+    userId: string,
+    userType: "ADMIN" | "PILGRIM",
+    role?: "STAFF" | "SUPER_ADMIN",
+    trx?: Knex.Transaction,
+  ): Promise<{ access_token: string; refresh_token: string }> {
+    const payload: any = {
+      user_id: userId,
+      type: userType,
+      ...(role && { role }),
+    };
+
+    // Generate access token
+    const accessToken = this.jwtService.sign(payload, {
+      secret:
+        this.configService.get<string>("JWT_SECRET") ??
+        "change_me_access",
+      expiresIn:
+        this.configService.get<number>("ACCESS_TOKEN_EXPIRES_IN") ?? 900, // 15m in seconds
+    });
+
+    // Generate refresh token
+    const refreshToken = this.jwtService.sign(payload, {
+      secret:
+        this.configService.get<string>("REFRESH_TOKEN_SECRET") ??
+        "change_me_refresh",
+      expiresIn:
+        this.configService.get<number>("REFRESH_TOKEN_EXPIRES_IN") ?? 604800, // 7d in seconds
+    });
+
+    // Store refresh token in database
+    const refreshTokenExpiresInDays = Number(
+      this.configService.get<string>("REFRESH_TOKEN_EXPIRES_IN_DAYS") ?? "7",
+    );
+    const expiresAt = new Date(
+      Date.now() + refreshTokenExpiresInDays * 24 * 60 * 60 * 1000,
+    );
+    await this.refreshTokensDao.createRefreshToken(
+      userId,
+      refreshToken,
+      expiresAt,
+      trx,
+    );
+
+    return { access_token: accessToken, refresh_token: refreshToken };
+  }
+}
