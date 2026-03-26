@@ -1,10 +1,13 @@
 export const TABLE_NAMES = {
   REGIONS: 'regions',
   DISTRICTS: 'districts',
+  COUNTRIES: 'countries',
   USERS: 'users',
   ADMINS: 'admins',
   PILGRIMS: 'pilgrims',
   OTP_CODES: 'otp_codes',
   OTP_SESSIONS: 'otp_sessions',
   REFRESH_TOKENS: 'refresh_tokens',
+  AGENCIES: 'agencies',
+  AGENCY_USERS: 'agency_users',
 } as const;

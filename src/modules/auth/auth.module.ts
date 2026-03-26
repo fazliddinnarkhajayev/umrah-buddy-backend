@@ -7,13 +7,13 @@ import { UsersAuthDao } from '../../shared/dao/users-auth.dao';
 import { AdminsDao } from '../../shared/dao/admins.dao';
 import { OtpSessionsDao } from '../../shared/dao/otp-sessions.dao';
 import { RefreshTokensDao } from '../../shared/dao/refresh-tokens.dao';
-import { PiligrimsDao } from 'src/shared/dao/piligrims.dao';
+import { PilgrimsDao } from 'src/shared/dao/piligrims.dao';
 import { UsersModule } from '../users/users.module';
 
 @Module({
   imports: [CoreModule, JwtModule.register({}), UsersModule],
   controllers: [AuthController],
-  providers: [AuthService, UsersAuthDao, AdminsDao, OtpSessionsDao, RefreshTokensDao, PiligrimsDao],
+  providers: [AuthService, UsersAuthDao, AdminsDao, OtpSessionsDao, RefreshTokensDao, PilgrimsDao],
   exports: [AuthService],
 })
 export class AuthModule {}

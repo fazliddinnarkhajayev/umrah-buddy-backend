@@ -6,6 +6,7 @@ import {
   Param,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from "@nestjs/common";
 import { JwtAuthGuard } from "../../shared/guards/jwt-auth.guard";
@@ -13,6 +14,7 @@ import { AdminsService } from "./admins.service";
 import { BlockUnblockDto } from "./dto/block-unblock.dto";
 import { CreateAdminDto } from "./dto/create-admin.dto";
 import { UpdateAdminDto } from "./dto/update-admin.dto";
+import { PaginationDto } from "src/shared/dto/pagination.dto";
 import { IsPublic } from "src/shared/decorators";
 
 @UseGuards(JwtAuthGuard)
@@ -21,8 +23,8 @@ export class AdminsController {
   constructor(private readonly adminsService: AdminsService) {}
 
   @Get()
-  list() {
-    return this.adminsService.findAll();
+  list(@Query() pagination: PaginationDto) {
+    return this.adminsService.findAllPaginated({}, pagination.page_index, pagination.page_size);
   }
 
   @Get(":id")
@@ -46,7 +48,8 @@ export class AdminsController {
   }
 
   @Delete(":id")
-  remove(@Param("id") id: string) {
-    return this.adminsService.delete(id);
+  async remove(@Param("id") id: string) {
+    const data = await this.adminsService.delete(id);
+    return { success: data };
   }
 }

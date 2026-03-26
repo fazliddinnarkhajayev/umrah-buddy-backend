@@ -1,6 +1,7 @@
 import { Injectable, Inject } from '@nestjs/common';
 import { Knex } from 'knex';
 import { KNEX_CONNECTION } from 'src/core/database/database.constants';
+import { PaginatedResult } from '../interfaces/pagination.interface';
 
 @Injectable()
 export class BaseDao<T extends { id: string }> {
@@ -34,6 +35,34 @@ export class BaseDao<T extends { id: string }> {
   async findMany(where: Partial<T> = {}, trx?: Knex.Transaction): Promise<T[]> {
     const records = await this.qb(trx).where(where as Record<string, unknown>);
     return records as T[];
+  }
+
+  async findManyPaginated(
+    where: Partial<T> = {},
+    pageIndex: number = 1,
+    pageSize: number = 10,
+    trx?: Knex.Transaction,
+  ): Promise<PaginatedResult<T>> {
+    const offset = (pageIndex - 1) * pageSize;
+
+    const [{ count }] = await this.qb(trx)
+      .where(where as Record<string, unknown>)
+      .count('* as count');
+
+    const totalItemsCount = Number(count);
+    const totalPagesCount = Math.ceil(totalItemsCount / pageSize);
+
+    const records = await this.qb(trx)
+      .where(where as Record<string, unknown>)
+      .limit(pageSize)
+      .offset(offset);
+
+    return new PaginatedResult(records as T[], {
+      total_items_count: totalItemsCount,
+      total_pages_count: totalPagesCount,
+      page_size: pageSize,
+      page_index: pageIndex,
+    });
   }
 
   async exists(where: Partial<T>, trx?: Knex.Transaction): Promise<boolean> {

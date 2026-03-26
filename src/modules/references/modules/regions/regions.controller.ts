@@ -1,7 +1,8 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
 import { RegionsService } from './regions.service';
 import { CreateRegionDto } from './dto/create-region.dto';
 import { UpdateRegionDto } from './dto/update-region.dto';
+import { PaginationDto } from 'src/shared/dto/pagination.dto';
 
 @Controller('references/regions')
 export class RegionsController {
@@ -13,8 +14,8 @@ export class RegionsController {
   }
 
   @Get()
-  async findAll() {
-    return this.regionsService.findAll();
+  async findAll(@Query() pagination: PaginationDto) {
+    return this.regionsService.findAllPaginated({}, pagination.page_index, pagination.page_size);
   }
 
   @Get(':id')

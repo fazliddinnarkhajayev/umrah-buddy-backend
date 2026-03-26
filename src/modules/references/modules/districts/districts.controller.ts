@@ -1,7 +1,8 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, Query } from '@nestjs/common';
 import { DistrictsService } from './districts.service';
 import { CreateDistrictDto } from './dto/create-district.dto';
 import { UpdateDistrictDto } from './dto/update-district.dto';
+import { PaginationDto } from 'src/shared/dto/pagination.dto';
 
 @Controller('references/districts')
 export class DistrictsController {
@@ -13,8 +14,8 @@ export class DistrictsController {
   }
 
   @Get()
-  async findAll() {
-    return this.districtsService.findAll();
+  async findAll(@Query() pagination: PaginationDto) {
+    return this.districtsService.findAllPaginated({}, pagination.page_index, pagination.page_size);
   }
 
   @Get(':id')

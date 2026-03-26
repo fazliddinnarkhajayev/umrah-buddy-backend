@@ -21,7 +21,7 @@ import { UsersAuthDao, UserRecord } from "../../shared/dao/users-auth.dao";
 import { AdminsDao } from "../../shared/dao/admins.dao";
 import { OtpSessionsDao } from "../../shared/dao/otp-sessions.dao";
 import { RefreshTokensDao } from "../../shared/dao/refresh-tokens.dao";
-import { PiligrimsDao } from "src/shared/dao/piligrims.dao";
+import { PilgrimsDao } from "src/shared/dao/piligrims.dao";
 import { KNEX_CONNECTION } from "src/core/database/database.constants";
 import { UsersService } from "../users/users.service";
 import { UserTypesEnum } from "src/shared/enums/user-types.enum";
@@ -44,7 +44,7 @@ export class AuthService {
     private readonly usersAuthDao: UsersAuthDao,
     private readonly adminsDao: AdminsDao,
     private readonly usersService: UsersService,
-    private readonly pilgrimsDao: PiligrimsDao,
+    private readonly pilgrimsDao: PilgrimsDao,
     private readonly otpSessionsDao: OtpSessionsDao,
     private readonly refreshTokensDao: RefreshTokensDao,
     private readonly jwtService: JwtService,
@@ -385,6 +385,7 @@ export class AuthService {
         dto.refresh_token,
         trx,
       );
+      console.log('refreshTokenRecord', refreshTokenRecord)
       if (!refreshTokenRecord) {
         throw new UnauthorizedException("Invalid or expired refresh token");
       }
@@ -426,6 +427,7 @@ export class AuthService {
 
         return { access_token: accessToken };
       } catch (error) {
+        console.log('Error', error)
         throw new UnauthorizedException("Invalid refresh token");
       }
     });
@@ -471,7 +473,7 @@ export class AuthService {
     // Generate access token
     const accessToken = this.jwtService.sign(payload, {
       secret:
-        this.configService.get<string>("JWT_SECRET") ??
+        this.configService.get<string>("ACCESS_TOKEN_SECRET") ??
         "change_me_access",
       expiresIn:
         this.configService.get<number>("ACCESS_TOKEN_EXPIRES_IN") ?? 900, // 15m in seconds

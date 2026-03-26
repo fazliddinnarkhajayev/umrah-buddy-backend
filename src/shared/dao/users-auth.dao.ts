@@ -35,19 +35,19 @@ export class UsersAuthDao {
 
   async findUserById(userId: string, trx?: Knex.Transaction): Promise<UserRecord | undefined> {
     return this.qb(trx)
-      .where({ id: userId, is_deleted: false })
+      .where({ id: userId })
       .first();
   }
 
   async findUserByPhone(phone: string, trx?: Knex.Transaction): Promise<UserRecord | undefined> {
     return this.qb(trx)
-      .where({ phone, is_deleted: false })
+      .where({ phone })
       .first();
   }
 
   async findUserByEmail(email: string, trx?: Knex.Transaction): Promise<UserRecord | undefined> {
     return this.qb(trx)
-      .where({ email, is_deleted: false })
+      .where({ email })
       .first();
   }
 
@@ -66,7 +66,6 @@ export class UsersAuthDao {
         password_hash: passwordHash,
         type,
         status: 'ACTIVE',
-        is_deleted: false,
         is_blocked: false,
         last_login_at: null,
       })

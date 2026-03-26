@@ -52,7 +52,7 @@ console.log('token', token)
     }
 
     try {
-      const secret = this.configService.get<string>('JWT_SECRET') ?? 'change_me_access';
+      const secret = this.configService.get<string>('ACCESS_TOKEN_SECRET') ?? 'change_me_access';
       const payload = this.jwtService.verify<JwtPayload>(token, { secret });
       request.user = payload;
       return true;
